@@ -12,9 +12,11 @@
   "app": {
     "windows": [
       {
-        "title": "Well Forge",
-        "width": 800,
-        "height": 600
+        "title": "Скважинатор 9000",
+        "width": 1280,
+        "height": 800,
+        "minWidth": 960,
+        "minHeight": 640
       }
     ],
     "security": {
@@ -22,8 +24,6 @@
     }
   },
   "bundle": {
-    "active": true,
-    "targets": "all",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

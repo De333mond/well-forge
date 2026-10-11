@@ -106,7 +106,12 @@
 
   body {
     @apply bg-background text-foreground font-sans antialiased;
-    min-width: 320px;
-    min-height: 100vh;
+    min-width: 960px;
+    min-height: 640px;
+  }
+
+  * {
+    scrollbar-color: var(--border) var(--card);
+    scrollbar-width: thin;
   }
 }

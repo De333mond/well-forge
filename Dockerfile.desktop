@@ -1,0 +1,36 @@
+FROM node:24-bookworm-slim AS node
+
+FROM rust:1-bookworm AS builder
+
+COPY --from=node /usr/local/bin/node /usr/local/bin/node
+COPY --from=node /usr/local/lib/node_modules /usr/local/lib/node_modules
+RUN ln -s ../lib/node_modules/npm/bin/npm-cli.js /usr/local/bin/npm \
+    && ln -s ../lib/node_modules/npm/bin/npx-cli.js /usr/local/bin/npx
+
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        curl \
+        file \
+        libayatana-appindicator3-dev \
+        librsvg2-dev \
+        libssl-dev \
+        libwebkit2gtk-4.1-dev \
+        libxdo-dev \
+        pkg-config \
+        wget \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/app/src-tauri/target,sharing=locked \
+    npm run tauri -- build --bundles appimage --ci \
+    && install -Dm755 src-tauri/target/release/bundle/appimage/*.AppImage /out/well-forge.AppImage
+
+FROM scratch AS artifact
+COPY --from=builder /out/well-forge.AppImage /well-forge.AppImage
