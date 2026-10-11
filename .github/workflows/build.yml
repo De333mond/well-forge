@@ -1,0 +1,65 @@
+name: Build desktop app
+
+on:
+  push:
+    tags:
+      - "**"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-22.04
+            artifact: well-forge-linux-x86_64
+            path: well-forge-linux-x86_64.tar.gz
+          - os: windows-latest
+            artifact: well-forge-windows-x86_64
+            path: src-tauri/target/release/well-forge.exe
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            build-essential \
+            curl \
+            wget \
+            file \
+            libxdo-dev \
+            libssl-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Build executable
+        run: npm run tauri -- build --no-bundle --ci
+
+      - name: Archive Linux executable
+        if: runner.os == 'Linux'
+        run: tar -czf well-forge-linux-x86_64.tar.gz -C src-tauri/target/release well-forge
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.path }}
+          if-no-files-found: error
