@@ -5,14 +5,6 @@ import { useWellModelStore } from '@/stores/wellModel'
 
 const model = useWellModelStore()
 const visibleWells = computed(() => model.calculatedWells ?? [])
-// Demonstrates the map until block data can be imported.
-const demoSize = 200
-const demoValues = Array.from({ length: demoSize * demoSize }, (_, index) => {
-  const x = (index % demoSize - 100) / 78
-  const y = (Math.floor(index / demoSize) - 100) / 65
-  const distance = x * x + y * y
-  return distance <= 1 ? Math.round(1000 * (1 - distance)) : null
-})
 </script>
 
 <template>
@@ -21,7 +13,7 @@ const demoValues = Array.from({ length: demoSize * demoSize }, (_, index) => {
       <div>
         <h2 class="text-lg font-semibold tracking-tight">Карта скважин</h2>
         <p class="mt-1 text-sm text-muted-foreground">
-          Демонстрационная сетка 200 × 200. Данные будут заменены после импорта.
+          {{ model.importedGrid ? model.importedFileName : 'Импортируйте файл CPS через меню «Файл».' }}
         </p>
       </div>
       <div class="rounded-md border bg-card px-3 py-1.5 text-xs tabular-nums text-muted-foreground">
@@ -34,9 +26,15 @@ const demoValues = Array.from({ length: demoSize * demoSize }, (_, index) => {
     </div>
 
     <WellGrid
-      :rows="demoSize"
-      :columns="demoSize"
-      :values="demoValues"
+      v-if="model.importedGrid"
+      :key="model.importedFileName + ':' + model.importedGrid.rows + ':' + model.importedGrid.columns"
+      :rows="model.importedGrid.rows"
+      :columns="model.importedGrid.columns"
+      :values="model.importedGrid.values"
+      :x-min="model.importedGrid.xMin"
+      :x-max="model.importedGrid.xMax"
+      :y-min="model.importedGrid.yMin"
+      :y-max="model.importedGrid.yMax"
       :wells="visibleWells"
     />
   </div>

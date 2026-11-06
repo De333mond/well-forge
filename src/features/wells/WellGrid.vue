@@ -8,13 +8,20 @@ const props = defineProps<{
   rows: number
   columns: number
   values: readonly (number | null)[]
+  xMin: number
+  xMax: number
+  yMin: number
+  yMax: number
   wells: string[]
 }>()
 
 const canvas = ref<HTMLCanvasElement | null>(null)
 const viewport = ref<HTMLElement | null>(null)
 const { width: viewportWidth, height: viewportHeight } = useElementSize(viewport)
+const maxZoom = 24
 const zoom = ref(3)
+const scrollLeft = ref(0)
+const scrollTop = ref(0)
 const isPanning = ref(false)
 let panStart: { x: number; y: number; left: number; top: number; pointerId: number } | null = null
 const selected = ref<{ row: number; column: number } | null>(null)
@@ -35,6 +42,37 @@ const selectedValue = computed(() => {
 })
 const formatter = new Intl.NumberFormat('ru-RU', { maximumFractionDigits: 2 })
 const scaleSteps = 5
+const coordinateFormatter = new Intl.NumberFormat('ru-RU', { useGrouping: false, maximumFractionDigits: 2 })
+const xStep = computed(() => props.columns > 1 ? (props.xMax - props.xMin) / (props.columns - 1) : 0)
+const yStep = computed(() => props.rows > 1 ? (props.yMax - props.yMin) / (props.rows - 1) : 0)
+
+function axisTicks(min: number, max: number, step: number, origin: number, extent: number, inset: number) {
+  if (step === 0) {
+    return origin >= inset && origin <= extent - 40 ? [{ position: origin, label: coordinateFormatter.format(min) }] : []
+  }
+  const rawInterval = step * 100 / zoom.value
+  const magnitude = 10 ** Math.floor(Math.log10(rawInterval))
+  const normalized = rawInterval / magnitude
+  const interval = (normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10) * magnitude
+  const first = Math.ceil(min / interval) * interval
+  const visibleMin = min + (inset - origin) * step / zoom.value
+  const visibleMax = min + (extent - 40 - origin) * step / zoom.value
+  const start = Math.max(first, Math.ceil(visibleMin / interval) * interval)
+  const end = Math.min(max, visibleMax)
+  const ticks: { position: number; label: string }[] = []
+  for (let value = start; value <= end + interval * 1e-9; value += interval) {
+    ticks.push({ position: origin + (value - min) / step * zoom.value, label: coordinateFormatter.format(value) })
+  }
+  return ticks
+}
+const xTicks = computed(() => axisTicks(props.xMin, props.xMax, xStep.value, viewportWidth.value / 2 - scrollLeft.value + zoom.value / 2, viewportWidth.value, 100))
+const yTicks = computed(() => axisTicks(props.yMin, props.yMax, yStep.value, viewportHeight.value / 2 - scrollTop.value + zoom.value / 2, viewportHeight.value, 35))
+
+function updateScroll() {
+  if (!viewport.value) return
+  scrollLeft.value = viewport.value.scrollLeft
+  scrollTop.value = viewport.value.scrollTop
+}
 
 function scaleLabel(index: number) {
   const range = limits.value
@@ -119,7 +157,7 @@ function endPan(event: PointerEvent) {
 function zoomAtPointer(event: WheelEvent) {
   event.preventDefault()
   if (!event.deltaY || !canvas.value || !viewport.value) return
-  const nextZoom = Math.max(2, Math.min(12, zoom.value + (event.deltaY < 0 ? 1 : -1)))
+  const nextZoom = Math.max(2, Math.min(maxZoom, zoom.value + (event.deltaY < 0 ? 1 : -1)))
   if (nextZoom === zoom.value) return
   const bounds = canvas.value.getBoundingClientRect()
   const x = (event.clientX - bounds.left) / zoom.value
@@ -173,8 +211,16 @@ onMounted(() => {
   draw()
   void nextTick(() => {
     if (!viewport.value) return
-    viewport.value.scrollLeft = viewport.value.scrollWidth / 2 - viewport.value.clientWidth / 2
-    viewport.value.scrollTop = viewport.value.scrollHeight / 2 - viewport.value.clientHeight / 2
+    zoom.value = Math.max(2, Math.min(maxZoom, Math.floor(Math.min(
+      (viewport.value.clientWidth - 120) / props.columns,
+      (viewport.value.clientHeight - 60) / props.rows,
+    ))))
+    void nextTick(() => {
+      if (!viewport.value) return
+      viewport.value.scrollLeft = viewport.value.scrollWidth / 2 - viewport.value.clientWidth / 2
+      viewport.value.scrollTop = viewport.value.scrollHeight / 2 - viewport.value.clientHeight / 2
+      updateScroll()
+    })
   })
   observer = new MutationObserver(draw)
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
@@ -190,7 +236,7 @@ watch([() => props.values, () => props.rows, () => props.columns, () => props.we
         <span>Масштаб</span>
         <Button variant="outline" size="icon" class="size-7" :disabled="zoom <= 2" aria-label="Уменьшить масштаб" @click="zoom--"><Minus class="size-3.5" /></Button>
         <span class="w-9 text-center tabular-nums">{{ zoom }} px</span>
-        <Button variant="outline" size="icon" class="size-7" :disabled="zoom >= 12" aria-label="Увеличить масштаб" @click="zoom++"><Plus class="size-3.5" /></Button>
+        <Button variant="outline" size="icon" class="size-7" :disabled="zoom >= maxZoom" aria-label="Увеличить масштаб" @click="zoom++"><Plus class="size-3.5" /></Button>
       </div>
       <div v-if="limits" class="flex items-center gap-2 text-xs tabular-nums text-muted-foreground" aria-label="Цветовая шкала значений">
         <span>{{ formatter.format(limits.min) }}</span>
@@ -213,10 +259,12 @@ watch([() => props.values, () => props.rows, () => props.columns, () => props.we
       </div>
       <span v-else class="text-xs text-muted-foreground">Нет данных для шкалы</span>
     </div>
+    <div class="relative min-h-0 min-w-0 flex-1 overflow-hidden">
     <div
       ref="viewport"
-      class="min-h-0 min-w-0 flex-1 overflow-auto"
+      class="h-full w-full overflow-auto"
       :class="isPanning ? 'cursor-grabbing' : 'cursor-crosshair'"
+      @scroll="updateScroll"
       @pointerdown="startPan"
       @pointermove="pan"
       @pointerup="endPan"
@@ -238,8 +286,17 @@ watch([() => props.values, () => props.rows, () => props.columns, () => props.we
       />
       </div>
     </div>
+    <div aria-hidden="true" class="pointer-events-none absolute inset-x-0 top-0 h-7 border-b bg-card text-[10px] tabular-nums text-muted-foreground">
+      <span class="absolute left-2 top-1 font-medium">X</span>
+      <span v-for="tick in xTicks" :key="tick.label" class="absolute top-1 -translate-x-1/2" :style="{ left: `${tick.position}px` }">{{ tick.label }}</span>
+    </div>
+    <div aria-hidden="true" class="pointer-events-none absolute bottom-0 left-0 top-7 w-24 border-r bg-card text-[10px] tabular-nums text-muted-foreground">
+      <span class="absolute left-2 top-1 font-medium">Y</span>
+      <span v-for="tick in yTicks" :key="tick.label" class="absolute right-2 -translate-y-1/2" :style="{ top: `${tick.position - 28}px` }">{{ tick.label }}</span>
+    </div>
+    </div>
     <div class="min-h-9 shrink-0 border-t px-4 py-2 text-xs tabular-nums text-muted-foreground" aria-live="polite">
-      <template v-if="selected">Строка {{ selected.row + 1 }}, столбец {{ selected.column + 1 }} · {{ selectedValue === null ? 'Нет данных' : `Запасы: ${formatter.format(selectedValue)}` }}</template>
+      <template v-if="selected">X {{ coordinateFormatter.format(xMin + selected.column * xStep) }}, Y {{ coordinateFormatter.format(yMin + selected.row * yStep) }} · Строка {{ selected.row + 1 }}, столбец {{ selected.column + 1 }} · {{ selectedValue === null ? 'Нет данных' : `Запасы: ${formatter.format(selectedValue)}` }}</template>
       <template v-else>Выберите блок мышью или стрелками. ПКМ — перемещение, колёсико — масштаб.</template>
     </div>
   </section>
