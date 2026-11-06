@@ -26,7 +26,7 @@ function updateSetting(key: ModelSetting, event: Event) {
         <div class="grid grid-cols-2 gap-3">
           <label class="space-y-1.5 text-xs font-medium">
             <span>Скважины s</span>
-            <Input type="number" :model-value="model.wellCount" min="1" :max="model.blockCount - 1" step="1" @change="updateSetting('wellCount', $event)" />
+            <Input type="number" :model-value="model.wellCount" min="1" :max="Math.max(1, model.blockCount - 1)" step="1" @change="updateSetting('wellCount', $event)" />
           </label>
           <label class="space-y-1.5 text-xs font-medium">
             <span>Сценарии N</span>

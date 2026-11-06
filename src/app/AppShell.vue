@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useStorage } from '@vueuse/core'
-import { useRoute } from 'vue-router'
+import { ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ChevronDown, CircleDot, Database, PanelLeftClose, PanelLeftOpen, Settings2 } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import {
@@ -11,9 +12,54 @@ import {
   DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { closeDesktopWindow, hasDesktopRuntime } from '@/lib/tauri'
+import { closeDesktopWindow, hasDesktopRuntime, openCpsFile } from '@/lib/tauri'
+import { parseCps } from '@/features/import/cps'
+import { useWellModelStore } from '@/stores/wellModel'
 
 const route = useRoute()
+const router = useRouter()
+const model = useWellModelStore()
+const fileInput = ref<HTMLInputElement | null>(null)
+const importError = ref('')
+const importing = ref(false)
+
+async function importContent(name: string, content: string) {
+  model.setImportedGrid(parseCps(content), name)
+  importError.value = ''
+  await router.push('/well-map')
+}
+
+async function importFile() {
+  importError.value = ''
+  if (!isDesktop) {
+    fileInput.value?.click()
+    return
+  }
+  importing.value = true
+  try {
+    const file = await openCpsFile()
+    if (file) await importContent(file.name, file.content)
+  } catch (error) {
+    importError.value = `Не удалось импортировать файл: ${error instanceof Error ? error.message : String(error)}`
+  } finally {
+    importing.value = false
+  }
+}
+
+async function onFileChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file) return
+  importing.value = true
+  try {
+    await importContent(file.name, await file.text())
+  } catch (error) {
+    importError.value = `Не удалось импортировать файл: ${error instanceof Error ? error.message : String(error)}`
+  } finally {
+    importing.value = false
+  }
+}
 const isDesktop = hasDesktopRuntime()
 const isSidebarCollapsed = useStorage('well-forge-sidebar-collapsed', false)
 const navigation = [
@@ -56,9 +102,8 @@ const navigation = [
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" class="w-64">
-            <DropdownMenuItem disabled>
-              Импорт
-              <DropdownMenuShortcut>Скоро</DropdownMenuShortcut>
+            <DropdownMenuItem :disabled="importing" @select="importFile">
+              {{ importing ? 'Импорт…' : 'Импорт CPS' }}
             </DropdownMenuItem>
             <DropdownMenuItem disabled>
               Открыть
@@ -75,6 +120,7 @@ const navigation = [
           </DropdownMenuContent>
         </DropdownMenu>
       </nav>
+      <input ref="fileInput" type="file" accept=".cps" class="hidden" @change="onFileChange" />
       <RouterLink
         to="/settings"
         class="mr-3 ml-auto flex h-7 items-center gap-2 rounded-md px-2.5 text-sm text-muted-foreground motion-safe:transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
@@ -111,6 +157,7 @@ const navigation = [
       </aside>
 
       <main class="min-h-0 min-w-0 flex-1 overflow-auto p-5">
+        <div v-if="importError" class="mb-3 rounded-md border border-destructive bg-card px-3 py-2 text-sm text-destructive" role="alert">{{ importError }}</div>
         <RouterView />
       </main>
     </div>
