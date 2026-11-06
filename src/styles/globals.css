@@ -40,6 +40,15 @@
 
 :root {
   color-scheme: light;
+  --map-scale-1: #000080;
+  --map-scale-2: #008cff;
+  --map-scale-3: #00d94c;
+  --map-scale-4: #ffff00;
+  --map-scale-5: #e60000;
+  --map-scale-divider: rgb(0 0 0 / 70%);
+  --map-empty: oklch(0.95 0 0);
+  --map-marker: oklch(0.18 0 0);
+  --map-selection: oklch(0.15 0 0);
   --radius: 0.5rem;
   --background: oklch(0.985 0 0);
   --foreground: oklch(0.2 0.005 270);
@@ -71,6 +80,9 @@
 
 .dark {
   color-scheme: dark;
+  --map-empty: oklch(0.23 0 0);
+  --map-marker: oklch(0.98 0 0);
+  --map-selection: oklch(0.98 0 0);
   --background: oklch(0.15 0.005 270);
   --foreground: oklch(0.95 0 0);
   --card: oklch(0.19 0.005 270);
