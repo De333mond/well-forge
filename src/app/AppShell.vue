@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useStorage } from '@vueuse/core'
-import { ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
+import { getCurrentWindow } from '@tauri-apps/api/window'
 import { useRoute, useRouter } from 'vue-router'
 import { ChevronDown, CircleDot, Database, PanelLeftClose, PanelLeftOpen, Settings2 } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
@@ -9,58 +10,71 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
-  DropdownMenuShortcut,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
-import { closeDesktopWindow, hasDesktopRuntime, openCpsFile } from '@/lib/tauri'
-import { parseCps } from '@/features/import/cps'
+import { closeDesktopWindow, confirmDiscard, hasDesktopRuntime, openCpsFile, openProjectFile, saveProjectFile } from '@/lib/tauri'
 import { useWellModelStore } from '@/stores/wellModel'
 
 const route = useRoute()
 const router = useRouter()
 const model = useWellModelStore()
-const fileInput = ref<HTMLInputElement | null>(null)
 const importError = ref('')
 const importing = ref(false)
+const isDesktop = hasDesktopRuntime()
+let unlistenClose: (() => void) | undefined
 
-async function importContent(name: string, content: string) {
-  model.setImportedGrid(parseCps(content), name)
+async function mayDiscard() {
+  return !model.dirty || await confirmDiscard()
+}
+
+async function runAction(action: () => Promise<void>) {
   importError.value = ''
-  await router.push('/well-map')
+  importing.value = true
+  try { await action() }
+  catch (error) { importError.value = `Операция не выполнена: ${String(error)}` }
+  finally { importing.value = false }
 }
 
 async function importFile() {
-  importError.value = ''
-  if (!isDesktop) {
-    fileInput.value?.click()
-    return
-  }
-  importing.value = true
-  try {
-    const file = await openCpsFile()
-    if (file) await importContent(file.name, file.content)
-  } catch (error) {
-    importError.value = `Не удалось импортировать файл: ${error instanceof Error ? error.message : String(error)}`
-  } finally {
-    importing.value = false
-  }
+  await runAction(async () => {
+    const path = await openCpsFile()
+    if (path && await mayDiscard()) {
+      await model.importCps(path)
+      await router.push('/well-map')
+    }
+  })
 }
 
-async function onFileChange(event: Event) {
-  const input = event.target as HTMLInputElement
-  const file = input.files?.[0]
-  input.value = ''
-  if (!file) return
-  importing.value = true
-  try {
-    await importContent(file.name, await file.text())
-  } catch (error) {
-    importError.value = `Не удалось импортировать файл: ${error instanceof Error ? error.message : String(error)}`
-  } finally {
-    importing.value = false
-  }
+async function openFile() {
+  await runAction(async () => {
+    const path = await openProjectFile()
+    if (path && await mayDiscard()) {
+      await model.openProject(path)
+      await router.push('/well-map')
+    }
+  })
 }
-const isDesktop = hasDesktopRuntime()
+
+async function saveFile(saveAs = false) {
+  await runAction(async () => {
+    const path = saveAs || !model.projectPath ? await saveProjectFile() : null
+    if (path || (!saveAs && model.projectPath)) await model.saveProject(path)
+  })
+}
+
+onMounted(async () => {
+  if (!isDesktop) return
+  try {
+    unlistenClose = await getCurrentWindow().onCloseRequested(async (event) => {
+      if (model.dirty) {
+        event.preventDefault()
+        if (await mayDiscard()) await getCurrentWindow().destroy()
+      }
+    })
+    await model.restore()
+  } catch (error) { importError.value = `Не удалось восстановить проект: ${String(error)}` }
+})
+onBeforeUnmount(() => unlistenClose?.())
 const isSidebarCollapsed = useStorage('well-forge-sidebar-collapsed', false)
 const navigation = [
   { to: '/', label: 'Начальные данные', icon: Database },
@@ -93,6 +107,7 @@ const navigation = [
         <PanelLeftOpen v-if="isSidebarCollapsed" class="size-4" aria-hidden="true" />
         <PanelLeftClose v-else class="size-4" aria-hidden="true" />
       </Button>
+      <span v-if="isDesktop" class="ml-3 max-w-48 truncate text-xs text-muted-foreground" :title="model.projectPath ?? model.projectName">{{ model.projectName }}{{ model.dirty ? ' •' : '' }}</span>
       <nav aria-label="Меню приложения" class="flex items-center gap-1 px-3">
         <DropdownMenu>
           <DropdownMenuTrigger as-child>
@@ -102,17 +117,12 @@ const navigation = [
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" class="w-64">
-            <DropdownMenuItem :disabled="importing" @select="importFile">
+            <DropdownMenuItem :disabled="!isDesktop || importing" @select="importFile">
               {{ importing ? 'Импорт…' : 'Импорт CPS' }}
             </DropdownMenuItem>
-            <DropdownMenuItem disabled>
-              Открыть
-              <DropdownMenuShortcut>Скоро</DropdownMenuShortcut>
-            </DropdownMenuItem>
-            <DropdownMenuItem disabled>
-              Сохранить
-              <DropdownMenuShortcut>Скоро</DropdownMenuShortcut>
-            </DropdownMenuItem>
+            <DropdownMenuItem :disabled="!isDesktop || importing" @select="openFile">Открыть проект</DropdownMenuItem>
+            <DropdownMenuItem :disabled="!isDesktop || importing" @select="saveFile(false)">Сохранить</DropdownMenuItem>
+            <DropdownMenuItem :disabled="!isDesktop || importing" @select="saveFile(true)">Сохранить как…</DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem :disabled="!isDesktop" @select="closeDesktopWindow">
               Выход
@@ -120,7 +130,6 @@ const navigation = [
           </DropdownMenuContent>
         </DropdownMenu>
       </nav>
-      <input ref="fileInput" type="file" accept=".cps" class="hidden" @change="onFileChange" />
       <RouterLink
         to="/settings"
         class="mr-3 ml-auto flex h-7 items-center gap-2 rounded-md px-2.5 text-sm text-muted-foreground motion-safe:transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
@@ -158,6 +167,7 @@ const navigation = [
 
       <main class="min-h-0 min-w-0 flex-1 overflow-auto p-5">
         <div v-if="importError" class="mb-3 rounded-md border border-destructive bg-card px-3 py-2 text-sm text-destructive" role="alert">{{ importError }}</div>
+        <div v-if="model.warning" class="mb-3 rounded-md border bg-card px-3 py-2 text-sm text-muted-foreground" role="status">{{ model.warning }}</div>
         <RouterView />
       </main>
     </div>

@@ -7,5 +7,37 @@ services:
       - .:/app
       - node_modules:/app/node_modules
 
+  desktop:
+    profiles: [desktop]
+    build:
+      context: .
+      dockerfile: Dockerfile.desktop
+      target: desktop-dev
+    working_dir: /app
+    ipc: host
+    environment:
+      HOME: ${HOME}
+      CARGO_HOME: ${HOME}/.cargo
+      XDG_RUNTIME_DIR: ${XDG_RUNTIME_DIR:-/tmp}
+      WAYLAND_DISPLAY: ${WAYLAND_DISPLAY:-wayland-0}
+      DBUS_SESSION_BUS_ADDRESS: unix:path=${XDG_RUNTIME_DIR:-/tmp}/bus
+      GDK_BACKEND: wayland
+      WEBKIT_DISABLE_COMPOSITING_MODE: "1"
+      WELL_FORGE_UID: ${WELL_FORGE_UID:-1000}
+      WELL_FORGE_GID: ${WELL_FORGE_GID:-1000}
+    volumes:
+      - .:/app
+      - ${HOME}:${HOME}
+      - ${XDG_RUNTIME_DIR:-/tmp}:${XDG_RUNTIME_DIR:-/tmp}
+      - desktop_node_modules:/app/node_modules
+    command:
+      - sh
+      - -c
+      - >-
+        chown -R "$${WELL_FORGE_UID}:$${WELL_FORGE_GID}" /app/node_modules &&
+        exec setpriv --reuid "$${WELL_FORGE_UID}" --regid "$${WELL_FORGE_GID}"
+        --clear-groups npm run tauri -- dev
+
 volumes:
   node_modules:
+  desktop_node_modules:

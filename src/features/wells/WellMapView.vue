@@ -13,7 +13,7 @@ const visibleWells = computed(() => model.calculatedWells ?? [])
       <div>
         <h2 class="text-lg font-semibold tracking-tight">Карта скважин</h2>
         <p class="mt-1 text-sm text-muted-foreground">
-          {{ model.importedGrid ? model.importedFileName : 'Импортируйте файл CPS через меню «Файл».' }}
+          {{ model.importedGrid ? model.projectName : 'Импортируйте файл CPS через меню «Файл».' }}
         </p>
       </div>
       <div class="rounded-md border bg-card px-3 py-1.5 text-xs tabular-nums text-muted-foreground">
@@ -27,7 +27,7 @@ const visibleWells = computed(() => model.calculatedWells ?? [])
 
     <WellGrid
       v-if="model.importedGrid"
-      :key="model.importedFileName + ':' + model.importedGrid.rows + ':' + model.importedGrid.columns"
+      :key="model.projectName + ':' + model.importedGrid.rows + ':' + model.importedGrid.columns"
       :rows="model.importedGrid.rows"
       :columns="model.importedGrid.columns"
       :values="model.importedGrid.values"
