@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { useStorage } from '@vueuse/core'
 import { useRoute } from 'vue-router'
-import { ChevronDown, CircleDot, Database, Grid2X2, PanelLeftClose, PanelLeftOpen, Settings2 } from '@lucide/vue'
+import { ChevronDown, CircleDot, Database, PanelLeftClose, PanelLeftOpen, Settings2 } from '@lucide/vue'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -18,7 +18,6 @@ const isDesktop = hasDesktopRuntime()
 const isSidebarCollapsed = useStorage('well-forge-sidebar-collapsed', false)
 const navigation = [
   { to: '/', label: 'Начальные данные', icon: Database },
-  { to: '/initial-placement', label: 'Начальное расположение', icon: Grid2X2 },
   { to: '/well-map', label: 'Карта скважин', icon: CircleDot },
 ]
 </script>
