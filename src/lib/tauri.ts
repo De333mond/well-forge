@@ -1,7 +1,6 @@
 import { invoke, isTauri } from '@tauri-apps/api/core'
 import { getCurrentWindow } from '@tauri-apps/api/window'
-import { open } from '@tauri-apps/plugin-dialog'
-import { readTextFile } from '@tauri-apps/plugin-fs'
+import { open, save, confirm } from '@tauri-apps/plugin-dialog'
 
 export function hasDesktopRuntime(): boolean {
   return isTauri()
@@ -15,8 +14,18 @@ export function closeDesktopWindow(): Promise<void> {
   return getCurrentWindow().close()
 }
 
-export async function openCpsFile(): Promise<{ name: string; content: string } | null> {
-  const path = await open({ multiple: false, filters: [{ name: 'CPS', extensions: ['cps'] }] })
-  if (!path) return null
-  return { name: path.split(/[\\/]/).pop() ?? path, content: await readTextFile(path) }
+export function openCpsFile(): Promise<string | null> {
+  return open({ multiple: false, filters: [{ name: 'CPS', extensions: ['cps'] }] })
+}
+
+export function openProjectFile(): Promise<string | null> {
+  return open({ multiple: false, filters: [{ name: 'Well Forge', extensions: ['wellforge'] }] })
+}
+
+export function saveProjectFile(): Promise<string | null> {
+  return save({ defaultPath: 'project.wellforge', filters: [{ name: 'Well Forge', extensions: ['wellforge'] }] })
+}
+
+export function confirmDiscard(): Promise<boolean> {
+  return confirm('В проекте есть несохранённые изменения. Продолжить без сохранения?', { title: 'Несохранённые изменения', kind: 'warning' })
 }
