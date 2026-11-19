@@ -1,4 +1,5 @@
 use crate::{
+    calculation::{self, Algorithm},
     cps, project_file,
     project_state::{AppState, Snapshot, snapshot},
     settings::{Settings, save_last_path, settings_path},
@@ -6,6 +7,7 @@ use crate::{
 use std::{
     fs,
     path::{Path, PathBuf},
+    sync::{Arc, atomic::Ordering::Relaxed},
 };
 use tauri::State;
 use tauri_plugin_fs::FsExt;
@@ -51,6 +53,7 @@ pub(crate) async fn restore_project(
     if let Some(path) = settings.last_project_path {
         match project_file::read_project(&path) {
             Ok(project) => {
+                state.cancel_calculation();
                 state.project = project;
                 state.path = Some(path);
                 state.dirty = false;
@@ -75,14 +78,13 @@ pub(crate) async fn import_cps(
     let text = fs::read_to_string(path).map_err(|e| e.to_string())?;
     let grid = cps::parse_cps(&text)?;
     let mut state = state.0.lock().map_err(|e| e.to_string())?;
-    let count = grid.values.iter().filter(|v| v.is_some()).count();
+    let count = grid.calculation_blocks().count();
     state.project.grid = Some(grid);
     state.project.well_count = state
         .project
         .well_count
         .min(count.saturating_sub(1).max(1) as u32);
-    state.project.calculated_wells = None;
-    state.dirty = true;
+    state.invalidate_result();
     Ok(snapshot(&state, None))
 }
 #[tauri::command]
@@ -94,6 +96,7 @@ pub(crate) async fn open_project(
     selected_path(&app, &path)?;
     let project = project_file::read_project(&path)?;
     let mut state = state.0.lock().map_err(|e| e.to_string())?;
+    state.cancel_calculation();
     state.project = project;
     state.path = Some(path.clone());
     state.dirty = false;
@@ -133,23 +136,57 @@ pub(crate) async fn update_setting(
                 .project
                 .grid
                 .as_ref()
-                .map(|g| {
-                    g.values
-                        .iter()
-                        .filter(|v| v.is_some())
-                        .count()
-                        .saturating_sub(1)
-                        .max(1)
-                })
+                .map(|g| g.calculation_blocks().count().saturating_sub(1).max(1))
                 .unwrap_or(1);
             state.project.well_count = value.trunc().clamp(1.0, max as f64) as u32;
         }
         "scenarios" => state.project.scenarios = value.trunc().clamp(1.0, u32::MAX as f64) as u32,
         "epsilon" => state.project.epsilon = value.clamp(0.0, 1.0),
         "gamma" => state.project.gamma = value.clamp(0.0, 1.0),
+        "tailPercent" => state.project.tail_percent = value.trunc().clamp(1.0, 100.0) as u32,
         _ => return Err("Неизвестный параметр.".into()),
     }
-    state.project.calculated_wells = None;
-    state.dirty = true;
+    state.invalidate_result();
     Ok(snapshot(&state, None))
+}
+
+#[tauri::command]
+pub(crate) async fn calculate_wells(
+    state: State<'_, AppState>,
+    algorithm: Algorithm,
+) -> Result<Snapshot, String> {
+    let (project, cancelled) = {
+        let mut current = state.0.lock().map_err(|e| e.to_string())?;
+        if current.calculation.is_some() {
+            return Err("Расчёт уже выполняется.".into());
+        }
+        let cancelled = Arc::new(false.into());
+        current.calculation = Some(Arc::clone(&cancelled));
+        (current.project.clone(), cancelled)
+    };
+    let worker_flag = Arc::clone(&cancelled);
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        calculation::calculate(&project, algorithm, &worker_flag)
+    })
+    .await;
+    let mut current = state.0.lock().map_err(|e| e.to_string())?;
+    current.calculation = None;
+    if cancelled.load(Relaxed) {
+        return Ok(snapshot(&current, None));
+    }
+    let (wells, calculation) = result.map_err(|e| format!("Ошибка расчёта: {e}"))??;
+    current.project.calculated_wells = Some(wells);
+    current.project.calculation = Some(calculation);
+    current.dirty = true;
+    Ok(snapshot(&current, None))
+}
+
+#[tauri::command]
+pub(crate) async fn cancel_calculation(state: State<'_, AppState>) -> Result<(), String> {
+    state
+        .0
+        .lock()
+        .map_err(|e| e.to_string())?
+        .cancel_calculation();
+    Ok(())
 }

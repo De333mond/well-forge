@@ -1,3 +1,4 @@
+mod calculation;
 mod commands;
 mod cps;
 mod project;
@@ -24,7 +25,9 @@ pub fn run() {
             commands::import_cps,
             commands::open_project,
             commands::save_project,
-            commands::update_setting
+            commands::update_setting,
+            commands::calculate_wells,
+            commands::cancel_calculation
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

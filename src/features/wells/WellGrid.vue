@@ -13,6 +13,7 @@ const props = defineProps<{
   yMin: number
   yMax: number
   wells: string[]
+  wellByCell?: readonly number[]
 }>()
 
 const canvas = ref<HTMLCanvasElement | null>(null)
@@ -25,6 +26,15 @@ const scrollTop = ref(0)
 const isPanning = ref(false)
 let panStart: { x: number; y: number; left: number; top: number; pointerId: number } | null = null
 const selected = ref<{ row: number; column: number } | null>(null)
+const selectedWell = computed(() => {
+  const cell = selected.value
+  return cell ? props.wells.indexOf(`${cell.row + 1}:${cell.column + 1}`) + 1 : 0
+})
+const selectedWellBlocks = computed(() => {
+  const well = selectedWell.value
+  if (!well || !props.wellByCell) return null
+  return props.wellByCell.reduce((count, owner) => owner === well ? count + 1 : count, 0)
+})
 const limits = computed(() => {
   let min = Infinity
   let max = -Infinity
@@ -117,6 +127,10 @@ function draw() {
       context.fillRect(column * zoom.value, row * zoom.value, zoom.value, zoom.value)
     }
   }
+  const well = selectedWell.value
+  if (well && props.wellByCell) {
+    drawWellZone(context, styles, well, props.wellByCell)
+  }
   context.strokeStyle = styles.getPropertyValue('--map-marker').trim()
   context.lineWidth = Math.max(1, zoom.value / 4)
   for (const position of props.wells) {
@@ -131,6 +145,40 @@ function draw() {
     context.lineWidth = 2
     context.strokeRect(selected.value.column * zoom.value + 1, selected.value.row * zoom.value + 1, Math.max(1, zoom.value - 2), Math.max(1, zoom.value - 2))
   }
+}
+
+function drawWellZone(
+  context: CanvasRenderingContext2D,
+  styles: CSSStyleDeclaration,
+  well: number,
+  owners: readonly number[],
+) {
+  const fill = styles.getPropertyValue('--map-zone-fill').trim()
+  const veil = styles.getPropertyValue('--map-zone-veil').trim()
+  const size = zoom.value
+  const columns = props.columns
+  function edge(x1: number, y1: number, x2: number, y2: number) {
+    context.moveTo(x1, y1)
+    context.lineTo(x2, y2)
+  }
+  context.beginPath()
+  for (let cell = 0; cell < owners.length; cell++) {
+    const owner = owners[cell]
+    if (!owner) continue
+    const column = cell % columns
+    const x = column * size
+    const y = Math.floor(cell / columns) * size
+    context.fillStyle = owner === well ? fill : veil
+    context.fillRect(x, y, size, size)
+    if (owner !== well) continue
+    if (owners[cell - columns] !== well) edge(x, y, x + size, y)
+    if (owners[cell + columns] !== well) edge(x, y + size, x + size, y + size)
+    if (column === 0 || owners[cell - 1] !== well) edge(x, y, x, y + size)
+    if (column === columns - 1 || owners[cell + 1] !== well) edge(x + size, y, x + size, y + size)
+  }
+  context.strokeStyle = styles.getPropertyValue('--map-selection').trim()
+  context.lineWidth = 1
+  context.stroke()
 }
 
 function startPan(event: PointerEvent) {
@@ -226,7 +274,7 @@ onMounted(() => {
   observer.observe(document.documentElement, { attributes: true, attributeFilter: ['class'] })
 })
 onBeforeUnmount(() => observer?.disconnect())
-watch([() => props.values, () => props.rows, () => props.columns, () => props.wells, zoom, selected], draw, { flush: 'post' })
+watch([() => props.values, () => props.rows, () => props.columns, () => props.wells, () => props.wellByCell, zoom, selected], draw, { flush: 'post' })
 </script>
 
 <template>
@@ -298,6 +346,11 @@ watch([() => props.values, () => props.rows, () => props.columns, () => props.we
     <div class="min-h-9 shrink-0 border-t px-4 py-2 text-xs tabular-nums text-muted-foreground" aria-live="polite">
       <template v-if="selected">X {{ coordinateFormatter.format(xMin + selected.column * xStep) }}, Y {{ coordinateFormatter.format(yMin + selected.row * yStep) }} · Строка {{ selected.row + 1 }}, столбец {{ selected.column + 1 }} · {{ selectedValue === null ? 'Нет данных' : `Запасы: ${formatter.format(selectedValue)}` }}</template>
       <template v-else>Выберите блок мышью или стрелками. ПКМ — перемещение, колёсико — масштаб.</template>
+      <template v-if="selectedWell">
+        · Скважина №{{ selectedWell }}
+        <template v-if="selectedWellBlocks !== null">· Блоков в области: {{ formatter.format(selectedWellBlocks) }}</template>
+        <template v-else>· Пересчитайте схему, чтобы показать область влияния</template>
+      </template>
     </div>
   </section>
 </template>

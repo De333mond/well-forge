@@ -49,6 +49,8 @@
   --map-empty: oklch(0.95 0 0);
   --map-marker: oklch(0.18 0 0);
   --map-selection: oklch(0.15 0 0);
+  --map-zone-fill: color-mix(in srgb, var(--primary) 24%, transparent);
+  --map-zone-veil: color-mix(in srgb, var(--card) 70%, transparent);
   --radius: 0.5rem;
   --background: oklch(0.985 0 0);
   --foreground: oklch(0.2 0.005 270);

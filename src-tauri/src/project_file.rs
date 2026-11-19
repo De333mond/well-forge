@@ -21,9 +21,22 @@ pub fn read_project(path: &Path) -> Result<Project, String> {
         .take(64 * 1024 * 1024 + 1)
         .read_to_string(&mut json)
         .map_err(|e| e.to_string())?;
-    let project: Project =
+    let mut project: Project =
         serde_json::from_str(&json).map_err(|e| format!("Некорректный файл проекта: {e}"))?;
     project.validate()?;
+    if project.calculated_wells.is_some()
+        && project
+            .calculation
+            .as_ref()
+            .is_none_or(|calculation| !calculation.positive_reserves_only)
+        && project
+            .grid
+            .as_ref()
+            .is_some_and(|grid| grid.values.contains(&Some(0.0)))
+    {
+        project.calculated_wells = None;
+        project.calculation = None;
+    }
     Ok(project)
 }
 
@@ -52,7 +65,45 @@ pub fn write_project(path: &Path, project: &Project) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cps::parse_cps;
+    use crate::{
+        calculation::{Algorithm, calculate},
+        cps::parse_cps,
+    };
+
+    #[test]
+    fn recalculation_replaces_old_result_on_grid_with_zero_reserves() {
+        let grid = parse_cps(
+            "FSASCI 0 1 COMPUTED 0 1e30\nFSNROW 1 3\nFSLIMI 0 2 0 0 0 1\n->Surface\n1 0 1",
+        )
+        .unwrap();
+        let mut project = Project {
+            grid: Some(grid),
+            well_count: 1,
+            ..Project::default()
+        };
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("test.wellforge");
+
+        let (wells, mut result) = calculate(&project, Algorithm::Interval, &false.into()).unwrap();
+        result.positive_reserves_only = false;
+        let well_by_cell = result.well_by_cell.take();
+        project.calculated_wells = Some(vec!["1:2".into()]);
+        project.calculation = Some(result.clone());
+        write_project(&path, &project).unwrap();
+        let mut reopened = read_project(&path).unwrap();
+        assert!(reopened.calculated_wells.is_none());
+        assert!(reopened.calculation.is_none());
+
+        result.positive_reserves_only = true;
+        result.well_by_cell = well_by_cell.clone();
+        reopened.calculated_wells = Some(wells.clone());
+        reopened.calculation = Some(result);
+        write_project(&path, &reopened).unwrap();
+        let restored = read_project(&path).unwrap();
+        assert_eq!(restored.calculated_wells, Some(wells));
+        assert_eq!(restored.calculation.unwrap().well_by_cell, well_by_cell);
+    }
+
     #[test]
     fn cps_and_project_roundtrip() {
         let input = "FSASCI 0 1 COMPUTED 0 1e30\nFSNROW 2 3\nFSLIMI 10 30 40 50 0 9\n->Surface\n0 1e30 2 3 4 5";
